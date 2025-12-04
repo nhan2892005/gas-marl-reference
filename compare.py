@@ -71,6 +71,36 @@ def RL_MultiAction(model,env):
             break
     return reward,green_reward
 
+def RL_MultiAction_BERT(model,env):
+    o = env.build_observation(repre="text")
+    running_num = 0
+
+    reward = 0
+    green_reward=0
+
+    while True:
+        lst = []
+        for i in range(0, MAX_QUEUE_SIZE * JOB_FEATURES, JOB_FEATURES):
+            if all(o[i:i + JOB_FEATURES] == [0] + [1] * (JOB_FEATURES - 2) + [0]):
+                lst.append(1)
+            elif all(o[i:i + JOB_FEATURES] == [1] * JOB_FEATURES):
+                lst.append(1)
+            else:
+                lst.append(0)
+        mask2 = np.zeros(action2_num, dtype=int)
+        if running_num < delayMaxJobNum:
+            mask2[running_num + 1:delayMaxJobNum + 1] = 1
+
+        a1,a2=model.eval_action(o,lst,mask2)
+
+        o, r, d, r2, sjf_t, f1_t, running_num, greenRwd = env.step(a1,a2,repre="text")
+
+        reward += r
+        green_reward +=greenRwd
+        if d:
+            break
+    return reward,green_reward
+
 def RL_OneAction(model,env):
     o = env.build_observation()
     green_reward=0
@@ -205,7 +235,7 @@ if __name__ == '__main__':
     parser.add_argument('--workload', type=str, default='lublin_256')
     parser.add_argument('--len', '-l', type=int, default=1024)
     parser.add_argument('--iter', '-i', type=int, default=10)
-    parser.add_argument('--backfill', type=int, default=1)
+    parser.add_argument('--backfill', type=int, default=0)
 
 
     args = parser.parse_args()

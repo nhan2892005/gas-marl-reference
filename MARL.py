@@ -438,9 +438,12 @@ class PPO():
 
     def load_using_model_name(self, model_name_path):
         self.actor_net.load_state_dict(
-            torch.load(model_name_path + "_actor.pkl"))
+            torch.load(model_name_path + "_actor.pkl", map_location=self.device))
         self.critic_net.load_state_dict(
-            torch.load(model_name_path + "_critic.pkl"))
+            torch.load(model_name_path + "_critic.pkl", map_location=self.device))
+
+        self.actor_net.to(self.device)
+        self.critic_net.to(self.device)
 
     def eval_action(self,o,mask1,mask2):
         with torch.no_grad():

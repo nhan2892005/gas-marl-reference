@@ -8,6 +8,8 @@ import gym
 from gym import spaces
 from gym.utils import seeding
 import configparser
+from sentence_transformers import SentenceTransformer
+import torch
 
 config = configparser.ConfigParser()
 config.read('configFile/config.ini')
@@ -38,6 +40,8 @@ GREEN_FEATURE = 2
 
 
 action2_num= len(delayTimeList) + delayMaxJobNum + 1
+
+model_name = "sentence-transformers/all-MiniLM-L6-v2"
 
 def combined_shape(length, shape=None):
     if shape is None:
@@ -78,6 +82,8 @@ class HPCEnv(gym.Env):
 
         self.backfill = backfill
 
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.text_encoder = SentenceTransformer(model_name, device=device)
 
     # @profile
     def my_init(self, workload_file='', sched_file=''):
@@ -112,7 +118,7 @@ class HPCEnv(gym.Env):
         return t
 
     # @profile
-    def reset(self):
+    def reset(self,repre="feature"):
         self.cluster.reset()
         self.loads.reset()
 
@@ -139,7 +145,7 @@ class HPCEnv(gym.Env):
         self.job_queue.append(self.loads[self.start])
         self.next_arriving_job_idx = self.start + 1
 
-        return self.build_observation()
+        return self.build_observation(repre=repre)
 
     def reset_for_test(self, num, start):
         self.cluster.reset()
@@ -341,73 +347,168 @@ class HPCEnv(gym.Env):
 
         return scheduled_logs,greenRwd
 
-    def build_observation(self):
-        vector = np.zeros((MAX_QUEUE_SIZE + run_win + green_win) * JOB_FEATURES, dtype=float)
-        self.job_queue.sort(key=lambda job: self.fcfs_score(job))
-
-        self.running_jobs.sort(key=lambda running_job: (running_job.scheduled_time + running_job.request_time))
+    def build_observation(self, repre="feature"):
         currentSlot=self.cluster.PowerStruc.getSlotFromRunning(self.running_jobs,self.current_timestamp)
         self.pairs = [
-                         [
-                             job,
-                             min(float(self.current_timestamp - job.submit_time) / float(MAX_WAIT_TIME), 1.0 - 1e-5),
-                             min(float(job.request_time) / float(self.loads.max_exec_time), 1.0 - 1e-5),
-                             min(float(job.request_number_of_processors) / float(self.loads.max_procs), 1.0 - 1e-5),
-                             min(float(job.power) / float(MAX_POWER), 1.0 - 1e-5),
-                             min(float(job.power / job.request_number_of_processors) / float(MAX_perProcPower),
-                                 1.0 - 1e-5),
-                             *self.cluster.getGreenJobState(job, self.current_timestamp, currentSlot),
-                             1.0 - 1e-5 if self.cluster.can_allocated(job) else 1e-5
-                         ]
-                         for i, job in enumerate(self.job_queue)
-                         if i < MAX_QUEUE_SIZE
-                     ] + [
-                         [None, 0, 1, 1, 1, 1, 1, 1, 0]
-                         for _ in range(MAX_QUEUE_SIZE - len(self.job_queue))
-                     ]
+                            [
+                                job,
+                                min(float(self.current_timestamp - job.submit_time) / float(MAX_WAIT_TIME), 1.0 - 1e-5),
+                                min(float(job.request_time) / float(self.loads.max_exec_time), 1.0 - 1e-5),
+                                min(float(job.request_number_of_processors) / float(self.loads.max_procs), 1.0 - 1e-5),
+                                min(float(job.power) / float(MAX_POWER), 1.0 - 1e-5),
+                                min(float(job.power / job.request_number_of_processors) / float(MAX_perProcPower),
+                                    1.0 - 1e-5),
+                                *self.cluster.getGreenJobState(job, self.current_timestamp, currentSlot),
+                                1.0 - 1e-5 if self.cluster.can_allocated(job) else 1e-5
+                            ]
+                            for i, job in enumerate(self.job_queue)
+                            if i < MAX_QUEUE_SIZE
+                        ] + [
+                            [None, 0, 1, 1, 1, 1, 1, 1, 0]
+                            for _ in range(MAX_QUEUE_SIZE - len(self.job_queue))
+                        ]
+        if repre == "feature":
+            vector = np.zeros((MAX_QUEUE_SIZE + run_win + green_win) * JOB_FEATURES, dtype=float)
+            self.job_queue.sort(key=lambda job: self.fcfs_score(job))
 
-        vector[:MAX_QUEUE_SIZE * JOB_FEATURES] = [item for pair in self.pairs[:MAX_QUEUE_SIZE] for item in pair[1:]]
+            self.running_jobs.sort(key=lambda running_job: (running_job.scheduled_time + running_job.request_time))
 
-        running_job = [
-                          [
-                              min(float(temp_job.request_number_of_processors) / float(self.loads.max_procs),
-                                  1.0 - 1e-5),
-                              min(float(temp_job.power) / float(MAX_POWER), 1.0 - 1e-5),
-                              min(float(temp_job.power / temp_job.request_number_of_processors) / float(
-                                  MAX_perProcPower), 1.0 - 1e-5),
-                              min(float(temp_job.scheduled_time + temp_job.request_time - self.current_timestamp) / float(
-                                  self.loads.max_exec_time), 1.0 - 1e-5),
-                              0,0,0,0
-                          ]
-                          for i, temp_job in enumerate(self.running_jobs[:run_win])
-                          if i < run_win
-                      ] + [
-                          [0, 0, 0, 0, 0,0,0,0]
-                          for _ in range(run_win - len(self.running_jobs))
-                      ]
-        vector[MAX_QUEUE_SIZE * JOB_FEATURES:(MAX_QUEUE_SIZE + run_win) * JOB_FEATURES] = [
-            job_feature for job in running_job for job_feature in job
-        ]
+            vector[:MAX_QUEUE_SIZE * JOB_FEATURES] = [item for pair in self.pairs[:MAX_QUEUE_SIZE] for item in pair[1:]]
 
-
-
-        green = self.cluster.greenPower.getGreenPowerSlot(self.current_timestamp)
-        green_slot = [
-            [
-                min(float(greenPower['lastTime']) / float(self.loads.max_exec_time), 1.0 - 1e-5),
-                min(float(greenPower['power']) / float(MAX_GREEN), 1.0 - 1e-5),
-                0,0,0,0,0,0
+            running_job = [
+                            [
+                                min(float(temp_job.request_number_of_processors) / float(self.loads.max_procs),
+                                    1.0 - 1e-5),
+                                min(float(temp_job.power) / float(MAX_POWER), 1.0 - 1e-5),
+                                min(float(temp_job.power / temp_job.request_number_of_processors) / float(
+                                    MAX_perProcPower), 1.0 - 1e-5),
+                                min(float(temp_job.scheduled_time + temp_job.request_time - self.current_timestamp) / float(
+                                    self.loads.max_exec_time), 1.0 - 1e-5),
+                                0,0,0,0
+                            ]
+                            for i, temp_job in enumerate(self.running_jobs[:run_win])
+                            if i < run_win
+                        ] + [
+                            [0, 0, 0, 0, 0,0,0,0]
+                            for _ in range(run_win - len(self.running_jobs))
+                        ]
+            vector[MAX_QUEUE_SIZE * JOB_FEATURES:(MAX_QUEUE_SIZE + run_win) * JOB_FEATURES] = [
+                job_feature for job in running_job for job_feature in job
             ]
-            for greenPower in green
-        ]
 
-        start_index = MAX_QUEUE_SIZE + run_win
-        end_index = MAX_QUEUE_SIZE + run_win + green_win
-        vector[start_index * JOB_FEATURES:end_index * JOB_FEATURES] = [item for slot in green_slot[
-                                                                                        start_index - MAX_QUEUE_SIZE - run_win:end_index - MAX_QUEUE_SIZE - run_win]
-                                                                       for item in slot]
+            green = self.cluster.greenPower.getGreenPowerSlot(self.current_timestamp)
+            green_slot = [
+                [
+                    min(float(greenPower['lastTime']) / float(self.loads.max_exec_time), 1.0 - 1e-5),
+                    min(float(greenPower['power']) / float(MAX_GREEN), 1.0 - 1e-5),
+                    0,0,0,0,0,0
+                ]
+                for greenPower in green
+            ]
 
-        return vector
+            start_index = MAX_QUEUE_SIZE + run_win
+            end_index = MAX_QUEUE_SIZE + run_win + green_win
+            vector[start_index * JOB_FEATURES:end_index * JOB_FEATURES] = [item for slot in green_slot[
+                                                                                            start_index - MAX_QUEUE_SIZE - run_win:end_index - MAX_QUEUE_SIZE - run_win]
+                                                                        for item in slot]
+
+            return vector
+        elif repre == "text":
+            # --------------------------------------------------------------------------
+            # PART 1: JOB QUEUE CONTEXT
+            # --------------------------------------------------------------------------
+            # Mô tả tổng quan hàng đợi và chi tiết các job đầu tiên (quan trọng nhất)
+            queue_sentences = [f"Queue Status: There are {len(self.job_queue)} waiting jobs."]
+            
+            for i, job in enumerate(self.job_queue):
+                if i >= MAX_QUEUE_SIZE: 
+                    break
+                
+                # Tính toán các thuộc tính ngữ cảnh
+                wait_time = self.current_timestamp - job.submit_time
+                green_state, green_val = self.cluster.getGreenJobState(job, self.current_timestamp, currentSlot)
+                can_alloc = self.cluster.can_allocated(job)
+                
+                # Xây dựng câu mô tả tận dụng Feature:
+                # [WaitTime, ReqTime, Procs, Power, PowerDensity, GreenState, GreenVal, ValidMask]
+                status_str = "Ready to start" if can_alloc else "Blocked by resources"
+                green_str = "High green energy match" if green_state > 0.5 else "Relies on brown energy"
+                
+                job_desc = (
+                    f"Job {i}: Waited {wait_time}s. "
+                    f"Requires {job.request_number_of_processors} CPUs and {job.power:.1f} Power "
+                    f"for {job.request_time}s. "
+                    f"Density: {job.power / max(1, job.request_number_of_processors):.2f}. "
+                    f"Status: {status_str}. {green_str} (Saving ratio: {green_val:.2f})."
+                )
+                queue_sentences.append(job_desc)
+            
+            # Join lại thành 1 đoạn văn duy nhất cho phần Queue
+            queue_text = " ".join(queue_sentences)
+
+            # --------------------------------------------------------------------------
+            # PART 2: RUNNING JOBS & CLUSTER CONTEXT
+            # --------------------------------------------------------------------------
+            running_sentences = []
+            # Context Cluster
+            cluster_desc = (
+                f"Cluster State: {self.cluster.free_node} nodes free out of {self.cluster.total_node}. "
+                f"Currently {len(self.running_jobs)} jobs are running."
+            )
+            running_sentences.append(cluster_desc)
+            
+            sorted_running = sorted(self.running_jobs, key=lambda j: j.scheduled_time + j.request_time)
+            for i, job in enumerate(sorted_running):
+                if i >= run_win: break
+                
+                remaining = (job.scheduled_time + job.request_time) - self.current_timestamp
+                # Mô tả Running Feature: [Procs, Power, Density, RemainingTime]
+                run_desc = (
+                    f"Running Job {i}: Occupies {job.request_number_of_processors} CPUs. "
+                    f"Releases resources in {remaining}s. "
+                    f"Consuming {job.power:.1f} Power."
+                )
+                running_sentences.append(run_desc)
+            
+            # Padding text nếu rỗng để đảm bảo ngữ nghĩa
+            if not self.running_jobs:
+                running_sentences.append("No active jobs, system is idle.")
+                
+            running_text = " ".join(running_sentences)
+
+            # --------------------------------------------------------------------------
+            # PART 3: ENERGY CONTEXT
+            # --------------------------------------------------------------------------
+            green_sentences = ["Energy Forecast:"]
+            green_slots = self.cluster.greenPower.getGreenPowerSlot(self.current_timestamp)
+            
+            for i, slot in enumerate(green_slots):
+                if i >= green_win: break
+                
+                # Feature: [Duration, TotalGreen, BrownCost, SolarCost, WindCost, SolarAvail, WindAvail]
+                slot_desc = (
+                    f"Window +{i}: Lasts {slot['lastTime']}s. "
+                    f"Renewable Supply: Total Available {slot['power']:.1f}"
+                )
+                green_sentences.append(slot_desc)
+                
+            green_text = " ".join(green_sentences)
+
+            # --------------------------------------------------------------------------
+            # ENCODING
+            # --------------------------------------------------------------------------
+            # Encode 3 đoạn văn riêng biệt để tạo vector cấu trúc
+            # Output shape: (3, 384) -> Flatten -> (1152,)
+            embeddings = self.text_encoder.encode([queue_text, running_text, green_text], 
+                                                show_progress_bar=False, 
+                                                batch_size=3,  # Process all at once
+                                                convert_to_numpy=True,
+                                                device=self.text_encoder.device
+                                                )
+            
+            return embeddings.flatten()
+        elif repre == "semi-text":
+            pass
 
     # @profile
     def moveforward_for_resources_backfill(self, job):
@@ -910,7 +1011,7 @@ class HPCEnv(gym.Env):
 
         return scheduled_logs,greenRwd
 
-    def step(self, a1,a2):
+    def step(self, a1,a2,repre="feature"):
         job_for_scheduling = self.pairs[a1][0]
         if self.backfill==1:
             done=self.schedule_backfill(job_for_scheduling,a2)
@@ -925,7 +1026,7 @@ class HPCEnv(gym.Env):
             done = self.schedule(job_for_scheduling)
 
         if not done:
-            obs = self.build_observation()
+            obs = self.build_observation(repre=repre)
             return [obs, 0, False, 0, 0, 0,len(self.running_jobs),0]
         else:
             self.post_process_score(self.scheduled_rl)
