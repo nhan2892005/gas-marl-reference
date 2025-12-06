@@ -88,10 +88,10 @@ def RL_MultiAction_BERT(model,env):
 
     while True:
         lst = []
-        for i in range(0, MAX_QUEUE_SIZE * JOB_FEATURES, JOB_FEATURES):
-            if all(o[i:i + JOB_FEATURES] == [0] + [1] * (JOB_FEATURES - 2) + [0]):
+        for i in range(0, embbedVectorNum * embbedVectorSize, embbedVectorSize):
+            if all(o[i:i + embbedVectorSize] == [0] + [1] * (embbedVectorSize - 2) + [0]):
                 lst.append(1)
-            elif all(o[i:i + JOB_FEATURES] == [1] * JOB_FEATURES):
+            elif all(o[i:i + embbedVectorSize] == [1] * embbedVectorSize):
                 lst.append(1)
             else:
                 lst.append(0)
@@ -168,6 +168,7 @@ def GA_policy(env,eta):
 def run_policy(env, nums, iters):
     PPO_r = []
     MARL_r = []
+    MARLBERT_r = []
     fcfs_r = []
     lptpn_r=[]
     GA_r=[]
@@ -175,6 +176,7 @@ def run_policy(env, nums, iters):
 
     PPO_path=workload_name +'/MaskablePPO/'
     MARL_path=workload_name +'/MARL/'
+    MARLBERT_path=workload_name +'/MARLBERT/'
 
     seed = 0
     random.seed(seed)
@@ -195,9 +197,9 @@ def run_policy(env, nums, iters):
         reward1=sum(log.values())
         lptpn_r.append([reward1,greenRwd,eta*reward1+greenRwd])
 
-        reward1, greenRwd = GA_policy(env,eta=eta)
-        GA_r.append([reward1, greenRwd, eta*reward1+greenRwd])
-        env.reset_for_test(nums, start)
+        # reward1, greenRwd = GA_policy(env,eta=eta)
+        # GA_r.append([reward1, greenRwd, eta*reward1+greenRwd])
+        # env.reset_for_test(nums, start)
 
         model=load_policy('PPO', PPO_path)
         reward1, greenRwd=RL_OneAction(model,env)
@@ -209,13 +211,19 @@ def run_policy(env, nums, iters):
         MARL_r.append([-reward1,greenRwd,eta*reward1+greenRwd])
         env.reset_for_test(nums, start)
 
+        model=load_policy('MARLBERT', MARLBERT_path)
+        reward1, greenRwd=RL_MultiAction_BERT(model,env)
+        MARLBERT_r.append([-reward1,greenRwd,eta*reward1+greenRwd])
+        env.reset_for_test(nums, start)
+
     algorithms = {
         "FCFS": column_averages(fcfs_r),
         "F2": column_averages(f2_r),
         "LPTPN": column_averages(lptpn_r),
-        "GA": column_averages(GA_r),
+        # "GA": column_averages(GA_r),
         "PPO": column_averages(PPO_r),
         "MARL": column_averages(MARL_r),
+        "MARLBERT": column_averages(MARLBERT_r),
     }
 
     filtered_results = {
@@ -243,7 +251,7 @@ if __name__ == '__main__':
     parser.add_argument('--workload', type=str, default='lublin_256')
     parser.add_argument('--len', '-l', type=int, default=1024)
     parser.add_argument('--iter', '-i', type=int, default=10)
-    parser.add_argument('--backfill', type=int, default=0)
+    parser.add_argument('--backfill', type=int, default=1)
 
 
     args = parser.parse_args()
