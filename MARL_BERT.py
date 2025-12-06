@@ -472,7 +472,7 @@ class PPO():
         return ac1, ac2
 
 def train(workload,backfill,continue_from):
-    seed = 0
+    seed = continue_from
     epochs = 300
     traj_num = 100
     env = HPCEnv(backfill=backfill)
