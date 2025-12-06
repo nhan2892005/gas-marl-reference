@@ -545,6 +545,9 @@ def train(workload,backfill):
             writer = csv.writer(file)
             writer.writerow(
                 [float(epoch_reward / traj_num), float(green_reward / traj_num), float(wait_reward / traj_num)])
+
+        if epoch % 5 == 0:
+            ppo.save_using_model_name(workload_name + f'/MARLBERT_{epoch}/')
         ppo.buffer.clear_buffer()
 
     ppo.save_using_model_name(workload_name + '/MARLBERT/')
