@@ -471,7 +471,7 @@ class PPO():
 
         return ac1, ac2
 
-def train(workload,backfill):
+def train(workload,backfill,continue_from):
     seed = 0
     epochs = 300
     traj_num = 100
@@ -489,7 +489,17 @@ def train(workload,backfill):
     featureNum_size = [JOB_FEATURES, RUN_FEATURE, GREEN_FEATURE]
     ppo = PPO(batch_size=256, inputNum_size=inputNum_size,
               featureNum_size=featureNum_size, device=device)
-    for epoch in range(epochs):
+
+    if continue_from > 0:
+        load_path = workload_name + f'/MARLBERT/epoch_{continue_from}/'
+        print(f"Loading model from: {load_path}")
+        try:
+            ppo.load_using_model_name(load_path)
+        except FileNotFoundError:
+            print(f"Error: Model file not found at {load_path}")
+            return
+
+    for epoch in range(continue_from + 1, epochs):
         o, r, d, ep_ret, ep_len, show_ret, sjf, f1, greenRwd = env.reset(repre="text"), 0, False, 0, 0, 0, 0, 0, 0
         running_num = 0
         t = 0
@@ -540,14 +550,14 @@ def train(workload,backfill):
                     break
 
         ppo.train()
-        with open('MARLBERT_'+workload_name+'.csv', mode='a',
+        with open(workload_name+'/MARLBERT_'+workload_name+'.csv', mode='a',
                   newline='') as file:
             writer = csv.writer(file)
             writer.writerow(
                 [float(epoch_reward / traj_num), float(green_reward / traj_num), float(wait_reward / traj_num)])
 
         if epoch % 5 == 0:
-            ppo.save_using_model_name(workload_name + f'/MARLBERT_{epoch}/')
+            ppo.save_using_model_name(workload_name + f'/MARLBERT/epoch_{epoch}/')
         ppo.buffer.clear_buffer()
 
     ppo.save_using_model_name(workload_name + '/MARLBERT/')
@@ -559,5 +569,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--workload', type=str, default='lublin_256')
     parser.add_argument('--backfill', type=int, default=0)
+    parser.add_argument('--continue_from', type=int, default=0)
     args = parser.parse_args()
-    train(args.workload, args.backfill)
+    train(args.workload, args.backfill, args.continue_from)

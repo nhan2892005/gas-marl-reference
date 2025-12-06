@@ -533,7 +533,7 @@ def train(workload,backfill):
                     break
 
         ppo.train()
-        with open('MARL_'+workload_name+'.csv', mode='a',
+        with open(workload_name + '/MARL_'+workload_name+'.csv', mode='a',
                   newline='') as file:
             writer = csv.writer(file)
             writer.writerow(

@@ -428,7 +428,7 @@ def train(workload,backfill):
                     break
 
         ppo.train()
-        with open('MaskablePPO_' + workload_name + '.csv', mode='a',
+        with open(workload_name + '/MaskablePPO_' + workload_name + '.csv', mode='a',
                   newline='') as file:
             writer = csv.writer(file)
             writer.writerow([float(epoch_reward / traj_num),float(green_reward / traj_num),float(wait_reward / traj_num)])
