@@ -60,7 +60,7 @@ class green_power():
 
     def getGreenPowerSlot(self,currentTime):
         greenPowerSlot=[]
-        index=int(currentTime/3600)  #任务开始点的slot索引
+        index=int(currentTime/3600) 
         t=currentTime
         for i in range(index,index+self.greenWin):
             power=self.greenPowerList[i]
@@ -104,7 +104,6 @@ class green_power():
             return 1
         else:
             return usedGreen/totalEnergy
-        # return -(totalEnergy-usedGreen)/3600000
 
     def getGreenUtiliEstimate(self,power,start,end,minIndex,maxIndex):
         usedGreen=0

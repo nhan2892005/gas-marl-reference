@@ -11,13 +11,6 @@ from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 import scipy.signal
 from HPCSimPickJobs import *
 
-JOB_FEATURES = 384
-RUN_FEATURE = 384
-GREEN_FEATURE = 384
-MAX_QUEUE_SIZE = 1
-run_win = 1
-green_win = 1
-
 class Buffer():
     def __init__(self):
         self.buffer_num = 0
@@ -73,7 +66,7 @@ class ActorNet(nn.Module):
         self.num_inputs3 = num_inputs3
         self.featureNum3 = featureNum3
 
-        self.embedding = nn.Linear(in_features=JOB_FEATURES, out_features=self.d_model)
+        self.embedding = nn.Linear(in_features=embbedVectorSize, out_features=self.d_model)
         self.JobEncoder = nn.Sequential(
             nn.Linear(self.featureNum1, 64),
             nn.ReLU(),
@@ -106,14 +99,14 @@ class ActorNet(nn.Module):
         self.hidden = nn.Sequential(
             nn.Linear(self.d_model, 32),
             nn.ReLU(),
-            nn.Linear(32, JOB_FEATURES),
+            nn.Linear(32, embbedVectorSize),
             nn.ReLU()
         )
 
         self.flatten = nn.Flatten()
 
         self.decoder2 = nn.Sequential(
-            nn.Linear((self.num_inputs1 + self.num_inputs2 + self.num_inputs3 + 1) * JOB_FEATURES, 64),
+            nn.Linear((self.num_inputs1 + self.num_inputs2 + self.num_inputs3 + 1) * embbedVectorSize, 64),
             nn.ReLU(),
             nn.Linear(64, action2_num),
         )
@@ -190,12 +183,12 @@ class CriticNet(nn.Module):
         self.hidden = nn.Sequential(
             nn.Linear(self.d_model, 32),
             nn.ReLU(),
-            nn.Linear(32, JOB_FEATURES),
+            nn.Linear(32, embbedVectorSize),
             nn.ReLU()
         )
 
         self.out = nn.Sequential(
-            nn.Linear((self.num_inputs1 + self.num_inputs2 + self.num_inputs3) * JOB_FEATURES, 64),
+            nn.Linear((self.num_inputs1 + self.num_inputs2 + self.num_inputs3) * embbedVectorSize, 64),
             nn.ReLU(),
             nn.Linear(64, 8),
             nn.ReLU(),
@@ -454,9 +447,9 @@ class PPO():
 
     def eval_action(self,o,mask1,mask2):
         with torch.no_grad():
-            o = o.reshape(1, MAX_QUEUE_SIZE + run_win + green_win, JOB_FEATURES)
+            o = o.reshape(1, embbedVectorNum + embbedVectorNum + embbedVectorNum, embbedVectorSize)
             state = torch.FloatTensor(o).to(self.device)
-            mask1 = np.array(mask1).reshape(1, MAX_QUEUE_SIZE)
+            mask1 = np.array(mask1).reshape(1, embbedVectorNum)
             mask1 = torch.FloatTensor(mask1).to(self.device)
             mask2 = mask2.reshape(1, action2_num)
             mask2 = torch.FloatTensor(mask2).to(self.device)
@@ -485,8 +478,8 @@ def train(workload,backfill,continue_from):
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
 
-    inputNum_size = [MAX_QUEUE_SIZE, run_win, green_win]
-    featureNum_size = [JOB_FEATURES, RUN_FEATURE, GREEN_FEATURE]
+    inputNum_size = [embbedVectorNum, embbedVectorNum, embbedVectorNum]
+    featureNum_size = [embbedVectorSize, embbedVectorSize, embbedVectorSize]
     ppo = PPO(batch_size=256, inputNum_size=inputNum_size,
               featureNum_size=featureNum_size, device=device)
 
@@ -508,10 +501,10 @@ def train(workload,backfill,continue_from):
         wait_reward = 0
         while True:
             lst = []
-            for i in range(0, MAX_QUEUE_SIZE * JOB_FEATURES, JOB_FEATURES):
-                if all(o[i:i + JOB_FEATURES] == [0] + [1] * (JOB_FEATURES - 2) + [0]):
+            for i in range(0, embbedVectorNum * embbedVectorSize, embbedVectorSize):
+                if all(o[i:i + embbedVectorSize] == [0] + [1] * (embbedVectorSize - 2) + [0]):
                     lst.append(1)
-                elif all(o[i:i + JOB_FEATURES] == [1] * JOB_FEATURES):
+                elif all(o[i:i + embbedVectorSize] == [1] * embbedVectorSize):
                     lst.append(1)
                 else:
                     lst.append(0)
@@ -520,9 +513,9 @@ def train(workload,backfill,continue_from):
             if running_num < delayMaxJobNum:
                 mask2[running_num + 1:delayMaxJobNum + 1] = 1
             with torch.no_grad():
-                o = o.reshape(1, MAX_QUEUE_SIZE + run_win + green_win, JOB_FEATURES)
+                o = o.reshape(1, embbedVectorNum + embbedVectorNum + embbedVectorNum, embbedVectorSize)
                 state = torch.FloatTensor(o).to(device)
-                mask1 = np.array(lst).reshape(1, MAX_QUEUE_SIZE)
+                mask1 = np.array(lst).reshape(1, embbedVectorNum)
                 mask1 = torch.FloatTensor(mask1).to(device)
                 mask2 = mask2.reshape(1, action2_num)
                 mask2 = torch.FloatTensor(mask2).to(device)

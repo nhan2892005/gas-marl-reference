@@ -4,7 +4,6 @@ from PowerStruc import power_struc
 import random
 import os
 def twoQs_function(tl):
-    # print("length of TL:",len(tl))
     temp = []
     tl1 = copy.deepcopy(tl)
     tl2 = copy.deepcopy(tl)
@@ -15,10 +14,7 @@ def twoQs_function(tl):
         i = 0
         flag1 = True
         flag2 = True
-        # print(len(tl),len(tl2),len(temp))
         while flag1 and len(tl) != 0 and len(tl1) != 0:
-            # print(tl[tl.index(tl1[i])])
-            # print(1,len(tl),len(tl2),len(temp))
             if tl[tl.index(tl1[i])] in tl:
 
                 temp.append(tl[tl.index(tl1[i])])
@@ -36,13 +32,7 @@ def twoQs_function(tl):
 
         i = 0
         while flag2 and len(tl) != 0 and len(tl2) != 0:
-            # print(tl[tl.index(tl2[i])])
-
-            # print(2,len(tl),len(tl2),len(temp))
             if tl[tl.index(tl2[i])] in tl:
-                # print(len(tl2),"from tl2")
-                # print(i, flag2)
-
                 temp.append(tl[tl.index(tl2[i])])
                 tl.pop(tl.index(tl2[i]))
                 tl1.pop(tl1.index(tl2[i]))

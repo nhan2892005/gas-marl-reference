@@ -8,6 +8,7 @@ from HPCSimPickJobs import *
 from MaskablePPO import PPO
 from GA import GA
 from  MARL import PPO as MARL
+from  MARL_BERT import PPO as MARLBERT
 
 
 def column_averages(matrix):
@@ -35,6 +36,13 @@ def load_policy(modelName,model_path):
 
     elif modelName == 'PPO':
         model = PPO(batch_size=256, inputNum_size=inputNum_size,
+                  featureNum_size=featureNum_size, device=device)
+        model.load_using_model_name(model_path)
+
+    elif modelName == 'MARLBERT':
+        inputNum_size = [embbedVectorNum, embbedVectorNum, embbedVectorNum]
+        featureNum_size = [embbedVectorSize, embbedVectorSize, embbedVectorSize]
+        model = MARLBERT(batch_size=256, inputNum_size=inputNum_size,
                   featureNum_size=featureNum_size, device=device)
         model.load_using_model_name(model_path)
 
