@@ -12,9 +12,9 @@ import scipy.signal
 from HPCSimPickJobs import *
 
 def reshapeSize(repreType):
-    if rewardType == "feature":
+    if repreType == "feature":
         return 1, MAX_QUEUE_SIZE + run_win + green_win, JOB_FEATURES
-    elif rewardType == "text":
+    elif repreType == "text":
         return 1, embbedVectorNum + embbedVectorNum + embbedVectorNum, embbedVectorSize
 
 class Buffer():
