@@ -11,10 +11,10 @@ from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 import scipy.signal
 from HPCSimPickJobs import *
 
-def reshapeSize(rewardType):
-    if rewardType == "scalar":
+def reshapeSize(repreType):
+    if rewardType == "feature":
         return 1, MAX_QUEUE_SIZE + run_win + green_win, JOB_FEATURES
-    elif rewardType == "cosine":
+    elif rewardType == "text":
         return 1, embbedVectorNum + embbedVectorNum + embbedVectorNum, embbedVectorSize
 
 class Buffer():
@@ -451,9 +451,9 @@ class PPO():
         self.actor_net.to(self.device)
         self.critic_net.to(self.device)
 
-    def eval_action(self,o,mask1,mask2,rewardType):
+    def eval_action(self,o,mask1,mask2,repre):
         with torch.no_grad():
-            o = o.reshape(*reshapeSize(rewardType))
+            o = o.reshape(*reshapeSize(repre))
             state = torch.FloatTensor(o).to(self.device)
             mask1 = np.array(mask1).reshape(1, MAX_QUEUE_SIZE)
             mask1 = torch.FloatTensor(mask1).to(self.device)
@@ -543,7 +543,7 @@ def train(workload,backfill,continue_from,repre,rewardType):
             if running_num < delayMaxJobNum:
                 mask2[running_num + 1:delayMaxJobNum + 1] = 1
             with torch.no_grad():
-                o = o.reshape(*reshapeSize(rewardType))
+                o = o.reshape(*reshapeSize(repre))
                 state = torch.FloatTensor(o).to(device)
                 mask1 = np.array(lst).reshape(1, MAX_QUEUE_SIZE)
                 mask1 = torch.FloatTensor(mask1).to(device)
