@@ -72,7 +72,7 @@ class ActorNet(nn.Module):
         self.num_inputs3 = num_inputs3
         self.featureNum3 = featureNum3
 
-        self.embedding = nn.Linear(in_features=embbedVectorSize, out_features=self.d_model)
+        self.embedding = nn.Linear(in_features=JOB_FEATURES, out_features=self.d_model)
         self.JobEncoder = nn.Sequential(
             nn.Linear(self.featureNum1, 64),
             nn.ReLU(),
@@ -221,7 +221,7 @@ class CriticNet(nn.Module):
 
 class PPO():
     def __init__(self, batch_size=10, inputNum_size=[], featureNum_size=[],
-                 device='cpu'):
+                 device='cpu', env=None):
         super(PPO, self).__init__()
         self.num_inputs1 = inputNum_size[0]
         self.num_inputs2 = inputNum_size[1]
@@ -265,13 +265,20 @@ class PPO():
         self.critic_net_optimizer = optim.Adam(
             self.critic_net.parameters(), lr=0.0005, eps=1e-6)
 
+        self.env = env
+
     def choose_action(self, state, mask1, mask2):
         with torch.no_grad():
             probs1 = self.actor_net.getActionn1(state, mask1)
         dist_bin1 = Categorical(probs=probs1)
         ac1 = dist_bin1.sample()
         log_prob1 = dist_bin1.log_prob(ac1)
-        job_input = state[:, ac1]
+        job_input = torch.tensor(self.env.pairs[ac1][1:])
+        def auto_unsqueeze(x, target_dim):
+            while x.dim() < target_dim:
+                x = x.unsqueeze(0)
+            return x
+        job_input = auto_unsqueeze(job_input, 3)
         with torch.no_grad():
             probs2 = self.actor_net.getAction2(state, mask2, job_input)
         dist_bin2 = Categorical(probs=probs2)
@@ -370,7 +377,6 @@ class PPO():
                            old_log_probs2,
                            job_input
                            ):
-
         log_probs1, entropy1 = self.act_job(states, masks1, actions1)
         log_probs2, entropy2 = self.act_exc(states, masks2, job_input, actions2)
         # Compute the policy loss
@@ -511,7 +517,7 @@ def train(workload,backfill,continue_from,repre,rewardType):
     inputNum_size, featureNum_size = prepareInputSize(repre)
     rewardVectorTarget = targetVector(rewardType)
     ppo = PPO(batch_size=256, inputNum_size=inputNum_size,
-              featureNum_size=featureNum_size, device=device)
+              featureNum_size=featureNum_size, device=device,env=env)
 
     if continue_from > 0:
         load_path = workload_name + f'/MARL/{repre}/{rewardType}/epoch_{continue_from}/'
@@ -531,10 +537,10 @@ def train(workload,backfill,continue_from,repre,rewardType):
         wait_reward = 0
         while True:
             lst = []
-            for i in range(0, embbedVectorNum * embbedVectorSize, embbedVectorSize):
-                if all(o[i:i + embbedVectorSize] == [0] + [1] * (embbedVectorSize - 2) + [0]):
+            for i in range(0, MAX_QUEUE_SIZE):
+                if env.pairs[i][1:] == [0] + [1] * (JOB_FEATURES - 2) + [0]:
                     lst.append(1)
-                elif all(o[i:i + embbedVectorSize] == [1] * embbedVectorSize):
+                elif env.pairs[i][1:] == [1] * JOB_FEATURES:
                     lst.append(1)
                 else:
                     lst.append(0)
