@@ -11,6 +11,12 @@ from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 import scipy.signal
 from HPCSimPickJobs import *
 
+def reshapeSize(rewardType):
+    if rewardType == "scalar":
+        return 1, MAX_QUEUE_SIZE + run_win + green_win, JOB_FEATURES
+    elif rewardType == "cosine":
+        return 1, embbedVectorNum + embbedVectorNum + embbedVectorNum, embbedVectorSize
+
 class Buffer():
     def __init__(self):
         self.buffer_num = 0
@@ -445,11 +451,11 @@ class PPO():
         self.actor_net.to(self.device)
         self.critic_net.to(self.device)
 
-    def eval_action(self,o,mask1,mask2):
+    def eval_action(self,o,mask1,mask2,rewardType):
         with torch.no_grad():
-            o = o.reshape(1, embbedVectorNum + embbedVectorNum + embbedVectorNum, embbedVectorSize)
+            o = o.reshape(*reshapeSize(rewardType))
             state = torch.FloatTensor(o).to(self.device)
-            mask1 = np.array(mask1).reshape(1, embbedVectorNum)
+            mask1 = np.array(mask1).reshape(1, MAX_QUEUE_SIZE)
             mask1 = torch.FloatTensor(mask1).to(self.device)
             mask2 = mask2.reshape(1, action2_num)
             mask2 = torch.FloatTensor(mask2).to(self.device)
@@ -537,9 +543,9 @@ def train(workload,backfill,continue_from,repre,rewardType):
             if running_num < delayMaxJobNum:
                 mask2[running_num + 1:delayMaxJobNum + 1] = 1
             with torch.no_grad():
-                o = o.reshape(1, embbedVectorNum + embbedVectorNum + embbedVectorNum, embbedVectorSize)
+                o = o.reshape(*reshapeSize(rewardType))
                 state = torch.FloatTensor(o).to(device)
-                mask1 = np.array(lst).reshape(1, embbedVectorNum)
+                mask1 = np.array(lst).reshape(1, MAX_QUEUE_SIZE)
                 mask1 = torch.FloatTensor(mask1).to(device)
                 mask2 = mask2.reshape(1, action2_num)
                 mask2 = torch.FloatTensor(mask2).to(device)
