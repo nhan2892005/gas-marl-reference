@@ -273,7 +273,7 @@ class PPO():
         dist_bin1 = Categorical(probs=probs1)
         ac1 = dist_bin1.sample()
         log_prob1 = dist_bin1.log_prob(ac1)
-        job_input = torch.tensor(self.env.pairs[ac1][1:])
+        job_input = torch.tensor(self.env.pairs[ac1][1:], device=self.device)
         def auto_unsqueeze(x, target_dim):
             while x.dim() < target_dim:
                 x = x.unsqueeze(0)
