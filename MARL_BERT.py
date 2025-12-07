@@ -464,7 +464,31 @@ class PPO():
 
         return ac1, ac2
 
-def train(workload,backfill,continue_from):
+def prepareInputSize(repreType):
+    if repreType == "feature":
+        return ([MAX_QUEUE_SIZE, run_win, green_win], [JOB_FEATURES, RUN_FEATURE, GREEN_FEATURE])
+    elif repreType == "text":
+        return ([embbedVectorNum, embbedVectorNum, embbedVectorNum], [embbedVectorSize, embbedVectorSize, embbedVectorSize])
+
+def calculateReward(rewardType, rewardVector, paramVector):
+    assert len(rewardVector) == len(paramVector)
+    if rewardType == "scalar":
+        sum_product = lambda arr1, arr2: sum(a * b for a, b in zip(arr1, arr2))
+        return sum_product(rewardVector, paramVector)
+    elif rewardType == "cosine":
+        cosine_similarity = lambda a, b: (
+            np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+            if np.linalg.norm(a) != 0 and np.linalg.norm(b) != 0 else 0.0
+        )
+        return cosine_similarity(rewardVector, paramVector)
+
+def targetVector(rewardType):
+    if rewardType == "scalar":
+        return [1, eta]
+    elif rewardType == "cosine":
+        return vectorReward
+
+def train(workload,backfill,continue_from,repre,rewardType):
     seed = continue_from
     epochs = 300
     traj_num = 100
@@ -477,14 +501,14 @@ def train(workload,backfill,continue_from):
 
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
-
-    inputNum_size = [embbedVectorNum, embbedVectorNum, embbedVectorNum]
-    featureNum_size = [embbedVectorSize, embbedVectorSize, embbedVectorSize]
+    
+    inputNum_size, featureNum_size = prepareInputSize(repre)
+    rewardVectorTarget = targetVector(rewardType)
     ppo = PPO(batch_size=256, inputNum_size=inputNum_size,
               featureNum_size=featureNum_size, device=device)
 
     if continue_from > 0:
-        load_path = workload_name + f'/MARLBERT/epoch_{continue_from}/'
+        load_path = workload_name + f'/MARL/{repre}/{rewardType}/epoch_{continue_from}/'
         print(f"Loading model from: {load_path}")
         try:
             ppo.load_using_model_name(load_path)
@@ -493,7 +517,7 @@ def train(workload,backfill,continue_from):
             return
 
     for epoch in range(continue_from + 1, epochs):
-        o, r, d, ep_ret, ep_len, show_ret, sjf, f1, greenRwd = env.reset(repre="text"), 0, False, 0, 0, 0, 0, 0, 0
+        o, r, d, ep_ret, ep_len, show_ret, sjf, f1, greenRwd = env.reset(repre=repre), 0, False, 0, 0, 0, 0, 0, 0
         running_num = 0
         t = 0
         epoch_reward = 0
@@ -522,7 +546,7 @@ def train(workload,backfill,continue_from):
                 action1, log_prob1, action2, log_prob2, value, job_input = ppo.choose_action(state, mask1, mask2)
             ppo.remember(state, value, log_prob1, log_prob2, action1, action2, greenRwd, mask1, mask2, device,
                          job_input)
-            o, r, d, r2, sjf_t, f1_t, running_num, greenRwd = env.step(action1.item(), action2.item(),"text")
+            o, r, d, r2, sjf_t, f1_t, running_num, greenRwd = env.step(action1.item(), action2.item(),repre)
             ep_ret += r
             ep_len += 1
             show_ret += r2
@@ -531,37 +555,38 @@ def train(workload,backfill,continue_from):
 
             green_reward += greenRwd
             wait_reward += r
-            epoch_reward += eta * r + greenRwd
+            traj_reward = calculateReward(rewardType, [greenRwd, r], rewardVectorTarget)
+            epoch_reward += traj_reward
 
             if d:
                 t += 1
-                ppo.storeIntoBuffter(eta * r + greenRwd)
+                ppo.storeIntoBuffter(traj_reward)
                 ppo.clear_memory()
-                o, r, d, ep_ret, ep_len, show_ret, sjf, f1, greenRwd = env.reset(repre="text"), 0, False, 0, 0, 0, 0, 0, 0
+                o, r, d, ep_ret, ep_len, show_ret, sjf, f1, greenRwd = env.reset(repre=repre), 0, False, 0, 0, 0, 0, 0, 0
                 running_num = 0
                 if t >= traj_num:
                     break
 
         ppo.train()
-        with open(workload_name+'/MARLBERT_'+workload_name+'.csv', mode='a',
+        with open(workload_name+f'/MARL/{repre}/{rewardType}/'+workload_name+'.csv', mode='a',
                   newline='') as file:
             writer = csv.writer(file)
             writer.writerow(
                 [float(epoch_reward / traj_num), float(green_reward / traj_num), float(wait_reward / traj_num)])
         print(f'Epoch {epoch}: {float(epoch_reward / traj_num)}, {float(green_reward / traj_num)}, {float(wait_reward / traj_num)}')
         if epoch % 50 == 0:
-            ppo.save_using_model_name(workload_name + f'/MARLBERT/epoch_{epoch}/')
+            ppo.save_using_model_name(workload_name + f'/MARL/{repre}/{rewardType}/epoch_{epoch}/')
         ppo.buffer.clear_buffer()
 
-    ppo.save_using_model_name(workload_name + '/MARLBERT/')
-
-
+    ppo.save_using_model_name(workload_name + f'/MARL/{repre}/{rewardType}/')
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--workload', type=str, default='lublin_256')
-    parser.add_argument('--backfill', type=int, default=0)
+    parser.add_argument('--backfill', type=int, default=1)
     parser.add_argument('--continue_from', type=int, default=0)
+    parser.add_argument('--repre', type=str, default="text")
+    parser.add_argument('--rewardType', type=str, default="cosine")
     args = parser.parse_args()
-    train(args.workload, args.backfill, args.continue_from)
+    train(args.workload, args.backfill, args.continue_from, args.repre, args.rewardType)

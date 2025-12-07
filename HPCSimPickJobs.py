@@ -23,6 +23,7 @@ delayMaxJobNum = int(config.get('GAS-MARL setting', 'delayMaxJobNum'))
 delayTimeList = eval(config.get('GAS-MARL setting', 'delayTimeList'))
 embbedVectorNum = int(config.get('GAS-MARL setting', 'embbedVectorNum'))
 embbedVectorSize = int(config.get('GAS-MARL setting', 'embbedVectorSize'))
+vectorReward = eval(config.get('GAS-MARL setting', 'vectorReward'))
 
 turbinePowerNominal = float(config.get('general setting', 'turbinePowerNominal'))
 numberPv = float(config.get('general setting', 'numberPv'))
