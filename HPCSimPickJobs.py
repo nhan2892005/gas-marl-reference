@@ -469,7 +469,7 @@ class HPCEnv(gym.Env):
                     f"Running Job {i}: Occupies {job.request_number_of_processors} cores. "
                     f"Releases resources in {remaining} seconds. "
                     f"Consuming {job.power:.1f} Power. "
-                    f"The average power per core is {temp_job.power / temp_job.request_number_of_processors}."
+                    f"The average power per core is {job.power / job.request_number_of_processors}."
                 )
                 running_sentences.append(run_desc)
             
