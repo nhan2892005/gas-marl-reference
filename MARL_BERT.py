@@ -548,8 +548,8 @@ def train(workload,backfill,continue_from):
             writer = csv.writer(file)
             writer.writerow(
                 [float(epoch_reward / traj_num), float(green_reward / traj_num), float(wait_reward / traj_num)])
-
-        if epoch % 500 == 0:
+        print(f'Epoch {epoch}: {float(epoch_reward / traj_num)}, {float(green_reward / traj_num)}, {float(wait_reward / traj_num)}')
+        if epoch % 50 == 0:
             ppo.save_using_model_name(workload_name + f'/MARLBERT/epoch_{epoch}/')
         ppo.buffer.clear_buffer()
 
