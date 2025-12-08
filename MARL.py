@@ -11,6 +11,12 @@ from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 import scipy.signal
 from HPCSimPickJobs import *
 
+def reshapeSize(repreType):
+    if repreType == "feature":
+        return 1, MAX_QUEUE_SIZE + run_win + green_win, JOB_FEATURES
+    elif repreType == "text":
+        return 1, embbedVectorNum + embbedVectorNum + embbedVectorNum, embbedVectorSize
+
 class Buffer():
     def __init__(self):
         self.buffer_num = 0
@@ -215,7 +221,7 @@ class CriticNet(nn.Module):
 
 class PPO():
     def __init__(self, batch_size=10, inputNum_size=[], featureNum_size=[],
-                 device='cpu'):
+                 device='cpu', env=None):
         super(PPO, self).__init__()
         self.num_inputs1 = inputNum_size[0]
         self.num_inputs2 = inputNum_size[1]
@@ -259,13 +265,20 @@ class PPO():
         self.critic_net_optimizer = optim.Adam(
             self.critic_net.parameters(), lr=0.0005, eps=1e-6)
 
+        self.env = env
+
     def choose_action(self, state, mask1, mask2):
         with torch.no_grad():
             probs1 = self.actor_net.getActionn1(state, mask1)
         dist_bin1 = Categorical(probs=probs1)
         ac1 = dist_bin1.sample()
         log_prob1 = dist_bin1.log_prob(ac1)
-        job_input = state[:, ac1]
+        job_input = torch.tensor(self.env.pairs[ac1][1:], device=self.device)
+        def auto_unsqueeze(x, target_dim):
+            while x.dim() < target_dim:
+                x = x.unsqueeze(0)
+            return x
+        job_input = auto_unsqueeze(job_input, 3)
         with torch.no_grad():
             probs2 = self.actor_net.getAction2(state, mask2, job_input)
         dist_bin2 = Categorical(probs=probs2)
@@ -364,7 +377,6 @@ class PPO():
                            old_log_probs2,
                            job_input
                            ):
-
         log_probs1, entropy1 = self.act_job(states, masks1, actions1)
         log_probs2, entropy2 = self.act_exc(states, masks2, job_input, actions2)
         # Compute the policy loss
@@ -445,9 +457,9 @@ class PPO():
         self.actor_net.to(self.device)
         self.critic_net.to(self.device)
 
-    def eval_action(self,o,mask1,mask2):
+    def eval_action(self,o,mask1,mask2,repre):
         with torch.no_grad():
-            o = o.reshape(1, MAX_QUEUE_SIZE + run_win + green_win, JOB_FEATURES)
+            o = o.reshape(*reshapeSize(repre))
             state = torch.FloatTensor(o).to(self.device)
             mask1 = np.array(mask1).reshape(1, MAX_QUEUE_SIZE)
             mask1 = torch.FloatTensor(mask1).to(self.device)
@@ -464,8 +476,43 @@ class PPO():
 
         return ac1, ac2
 
-def train(workload,backfill):
-    seed = 0
+def prepareInputSize(repreType):
+    if repreType == "feature":
+        return ([MAX_QUEUE_SIZE, run_win, green_win], [JOB_FEATURES, RUN_FEATURE, GREEN_FEATURE])
+    elif repreType == "text":
+        return ([embbedVectorNum, embbedVectorNum, embbedVectorNum], [embbedVectorSize, embbedVectorSize, embbedVectorSize])
+
+def calculateReward(rewardType, rewardVector, paramVector):
+    assert len(rewardVector) == len(paramVector)
+    if rewardType == "scalar":
+        sum_product = lambda arr1, arr2: sum(a * b for a, b in zip(arr1, arr2))
+        return sum_product(rewardVector, paramVector)
+    elif rewardType == "cosine":
+        cosine_similarity = lambda a, b: (
+            np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+            if np.linalg.norm(a) != 0 and np.linalg.norm(b) != 0 else 0.0
+        )
+        return cosine_similarity(rewardVector, paramVector)
+    elif rewardType == "euclid":
+        euclid_distance = lambda a, b: -np.linalg.norm(a - b)
+        return euclid_distance(rewardVector, paramVector)
+    elif rewardType == "gauss":
+        alpha = 0.1
+        euclid_reward = lambda a, b: np.exp(-alpha * np.linalg.norm(a - b)**2)
+        return euclid_reward(rewardVector, paramVector)
+
+def targetVector(rewardType):
+    if rewardType == "scalar":
+        return [1, eta]
+    elif rewardType == "cosine":
+        return vectorReward
+    elif rewardType == "euclid":
+        return vectorReward
+    elif rewardType == "gauss":
+        return vectorReward
+
+def train(workload,backfill,continue_from,repre,rewardType):
+    seed = continue_from
     epochs = 300
     traj_num = 100
     env = HPCEnv(backfill=backfill)
@@ -477,13 +524,23 @@ def train(workload,backfill):
 
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
-
-    inputNum_size = [MAX_QUEUE_SIZE, run_win, green_win]
-    featureNum_size = [JOB_FEATURES, RUN_FEATURE, GREEN_FEATURE]
+    
+    inputNum_size, featureNum_size = prepareInputSize(repre)
+    rewardVectorTarget = targetVector(rewardType)
     ppo = PPO(batch_size=256, inputNum_size=inputNum_size,
-              featureNum_size=featureNum_size, device=device)
-    for epoch in range(epochs):
-        o, r, d, ep_ret, ep_len, show_ret, sjf, f1, greenRwd = env.reset(), 0, False, 0, 0, 0, 0, 0, 0
+              featureNum_size=featureNum_size, device=device,env=env)
+
+    if continue_from > 0:
+        load_path = workload_name + f'/MARL/{repre}/{rewardType}/epoch_{continue_from}/'
+        print(f"Loading model from: {load_path}")
+        try:
+            ppo.load_using_model_name(load_path)
+        except FileNotFoundError:
+            print(f"Error: Model file not found at {load_path}")
+            return
+
+    for epoch in range(continue_from + 1, epochs):
+        o, r, d, ep_ret, ep_len, show_ret, sjf, f1, greenRwd = env.reset(repre=repre), 0, False, 0, 0, 0, 0, 0, 0
         running_num = 0
         t = 0
         epoch_reward = 0
@@ -491,10 +548,10 @@ def train(workload,backfill):
         wait_reward = 0
         while True:
             lst = []
-            for i in range(0, MAX_QUEUE_SIZE * JOB_FEATURES, JOB_FEATURES):
-                if all(o[i:i + JOB_FEATURES] == [0] + [1] * (JOB_FEATURES - 2) + [0]):
+            for i in range(0, MAX_QUEUE_SIZE):
+                if env.pairs[i][1:] == [0] + [1] * (JOB_FEATURES - 2) + [0]:
                     lst.append(1)
-                elif all(o[i:i + JOB_FEATURES] == [1] * JOB_FEATURES):
+                elif env.pairs[i][1:] == [1] * JOB_FEATURES:
                     lst.append(1)
                 else:
                     lst.append(0)
@@ -503,7 +560,7 @@ def train(workload,backfill):
             if running_num < delayMaxJobNum:
                 mask2[running_num + 1:delayMaxJobNum + 1] = 1
             with torch.no_grad():
-                o = o.reshape(1, MAX_QUEUE_SIZE + run_win + green_win, JOB_FEATURES)
+                o = o.reshape(*reshapeSize(repre))
                 state = torch.FloatTensor(o).to(device)
                 mask1 = np.array(lst).reshape(1, MAX_QUEUE_SIZE)
                 mask1 = torch.FloatTensor(mask1).to(device)
@@ -512,7 +569,7 @@ def train(workload,backfill):
                 action1, log_prob1, action2, log_prob2, value, job_input = ppo.choose_action(state, mask1, mask2)
             ppo.remember(state, value, log_prob1, log_prob2, action1, action2, greenRwd, mask1, mask2, device,
                          job_input)
-            o, r, d, r2, sjf_t, f1_t, running_num, greenRwd = env.step(action1.item(), action2.item())
+            o, r, d, r2, sjf_t, f1_t, running_num, greenRwd = env.step(action1.item(), action2.item(),repre)
             ep_ret += r
             ep_len += 1
             show_ret += r2
@@ -521,33 +578,38 @@ def train(workload,backfill):
 
             green_reward += greenRwd
             wait_reward += r
-            epoch_reward += eta * r + greenRwd
+            traj_reward = calculateReward(rewardType, [greenRwd, r], rewardVectorTarget)
+            epoch_reward += traj_reward
 
             if d:
                 t += 1
-                ppo.storeIntoBuffter(eta * r + greenRwd)
+                ppo.storeIntoBuffter(traj_reward)
                 ppo.clear_memory()
-                o, r, d, ep_ret, ep_len, show_ret, sjf, f1, greenRwd = env.reset(), 0, False, 0, 0, 0, 0, 0, 0
+                o, r, d, ep_ret, ep_len, show_ret, sjf, f1, greenRwd = env.reset(repre=repre), 0, False, 0, 0, 0, 0, 0, 0
                 running_num = 0
                 if t >= traj_num:
                     break
 
         ppo.train()
-        with open(workload_name + '/MARL_'+workload_name+'.csv', mode='a',
+        with open(workload_name+f'/MARL/{repre}/{rewardType}/'+workload_name+'.csv', mode='a',
                   newline='') as file:
             writer = csv.writer(file)
             writer.writerow(
                 [float(epoch_reward / traj_num), float(green_reward / traj_num), float(wait_reward / traj_num)])
+        print(f'Epoch {epoch}: {float(epoch_reward / traj_num)}, {float(green_reward / traj_num)}, {float(wait_reward / traj_num)}')
+        if epoch % 50 == 0:
+            ppo.save_using_model_name(workload_name + f'/MARL/{repre}/{rewardType}/epoch_{epoch}/')
         ppo.buffer.clear_buffer()
 
-    ppo.save_using_model_name(workload_name + '/MARL/')
-
-
+    ppo.save_using_model_name(workload_name + f'/MARL/{repre}/{rewardType}/')
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--workload', type=str, default='lublin_256')
-    parser.add_argument('--backfill', type=int, default=0)
+    parser.add_argument('--backfill', type=int, default=1)
+    parser.add_argument('--continue_from', type=int, default=0)
+    parser.add_argument('--repre', type=str, default="text")
+    parser.add_argument('--rewardType', type=str, default="cosine")
     args = parser.parse_args()
-    train(args.workload, args.backfill)
+    train(args.workload, args.backfill, args.continue_from, args.repre, args.rewardType)

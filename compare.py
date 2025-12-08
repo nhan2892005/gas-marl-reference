@@ -8,8 +8,6 @@ from HPCSimPickJobs import *
 from MaskablePPO import PPO
 from GA import GA
 from  MARL import PPO as MARL
-from  MARL_BERT import PPO as MARLBERT
-
 
 def column_averages(matrix):
     transposed = list(zip(*matrix))
@@ -30,7 +28,7 @@ def load_policy(modelName,model_path):
     device = torch.device("cuda" if use_cuda else "cpu")
 
     if modelName=='MARL':
-        model = MARLBERT(batch_size=256, inputNum_size=inputNum_size,
+        model = MARL(batch_size=256, inputNum_size=inputNum_size,
                   featureNum_size=featureNum_size, device=device)
         model.load_using_model_name(model_path)
 
@@ -42,7 +40,7 @@ def load_policy(modelName,model_path):
     elif modelName == 'MARLBERT':
         inputNum_size = [embbedVectorNum, embbedVectorNum, embbedVectorNum]
         featureNum_size = [embbedVectorSize, embbedVectorSize, embbedVectorSize]
-        model = MARLBERT(batch_size=256, inputNum_size=inputNum_size,
+        model = MARL(batch_size=256, inputNum_size=inputNum_size,
                   featureNum_size=featureNum_size, device=device)
         model.load_using_model_name(model_path)
 
@@ -168,7 +166,7 @@ def GA_policy(env,eta):
 def run_policy(env, nums, iters):
     PPO_r = []
     MARL_r = []
-    MARLBERT_r = []
+    MARLcos_r = []
     fcfs_r = []
     lptpn_r=[]
     GA_r=[]
@@ -176,7 +174,7 @@ def run_policy(env, nums, iters):
 
     PPO_path=workload_name +'/MaskablePPO/'
     MARL_path=workload_name +'/MARL/feature/scalar/'
-    MARLBERT_path=workload_name +'/MARL/feature/cosine/'
+    MARLcos_path=workload_name +'/MARL/feature/cosine/'
 
     seed = 0
     random.seed(seed)
@@ -211,11 +209,10 @@ def run_policy(env, nums, iters):
         MARL_r.append([-reward1,greenRwd,eta*reward1+greenRwd])
         env.reset_for_test(nums, start)
 
-        # print("here")
-        # model=load_policy('MARL', MARLBERT_path)
-        # reward1, greenRwd=RL_MultiAction(model,env)
-        # MARLBERT_r.append([-reward1,greenRwd,eta*reward1+greenRwd])
-        # env.reset_for_test(nums, start)
+        model=load_policy('MARL', MARLcos_path)
+        reward1, greenRwd=RL_MultiAction(model,env)
+        MARLcos_r.append([-reward1,greenRwd,eta*reward1+greenRwd])
+        env.reset_for_test(nums, start)
 
     algorithms = {
         "FCFS": column_averages(fcfs_r),
@@ -224,7 +221,7 @@ def run_policy(env, nums, iters):
         # "GA": column_averages(GA_r),
         "PPO": column_averages(PPO_r),
         "MARL": column_averages(MARL_r),
-        "MARLBERT": column_averages(MARLBERT_r),
+        "MARLcos": column_averages(MARLcos_r),
     }
 
     filtered_results = {
