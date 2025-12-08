@@ -30,7 +30,7 @@ def load_policy(modelName,model_path):
     device = torch.device("cuda" if use_cuda else "cpu")
 
     if modelName=='MARL':
-        model = MARL(batch_size=256, inputNum_size=inputNum_size,
+        model = MARLBERT(batch_size=256, inputNum_size=inputNum_size,
                   featureNum_size=featureNum_size, device=device)
         model.load_using_model_name(model_path)
 
@@ -50,7 +50,7 @@ def load_policy(modelName,model_path):
 
 
 def RL_MultiAction(model,env):
-    o = env.build_observation()
+    o = env.build_observation("feature")
     running_num = 0
 
     reward = 0
@@ -69,9 +69,9 @@ def RL_MultiAction(model,env):
         if running_num < delayMaxJobNum:
             mask2[running_num + 1:delayMaxJobNum + 1] = 1
 
-        a1,a2=model.eval_action(o,lst,mask2)
+        a1,a2=model.eval_action(o,lst,mask2, "feature")
 
-        o, r, d, r2, sjf_t, f1_t, running_num, greenRwd = env.step(a1,a2)
+        o, r, d, r2, sjf_t, f1_t, running_num, greenRwd = env.step(a1,a2, "feature")
 
         reward += r
         green_reward +=greenRwd
@@ -175,8 +175,8 @@ def run_policy(env, nums, iters):
     f2_r=[]
 
     PPO_path=workload_name +'/MaskablePPO/'
-    MARL_path=workload_name +'/MARL/'
-    MARLBERT_path=workload_name +'/MARLBERT/'
+    MARL_path=workload_name +'/MARL/feature/scalar/'
+    MARLBERT_path=workload_name +'/MARL/feature/cosine/'
 
     seed = 0
     random.seed(seed)
@@ -211,10 +211,11 @@ def run_policy(env, nums, iters):
         MARL_r.append([-reward1,greenRwd,eta*reward1+greenRwd])
         env.reset_for_test(nums, start)
 
-        model=load_policy('MARLBERT', MARLBERT_path)
-        reward1, greenRwd=RL_MultiAction_BERT(model,env)
-        MARLBERT_r.append([-reward1,greenRwd,eta*reward1+greenRwd])
-        env.reset_for_test(nums, start)
+        # print("here")
+        # model=load_policy('MARL', MARLBERT_path)
+        # reward1, greenRwd=RL_MultiAction(model,env)
+        # MARLBERT_r.append([-reward1,greenRwd,eta*reward1+greenRwd])
+        # env.reset_for_test(nums, start)
 
     algorithms = {
         "FCFS": column_averages(fcfs_r),

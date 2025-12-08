@@ -105,14 +105,14 @@ class ActorNet(nn.Module):
         self.hidden = nn.Sequential(
             nn.Linear(self.d_model, 32),
             nn.ReLU(),
-            nn.Linear(32, embbedVectorSize),
+            nn.Linear(32, JOB_FEATURES),
             nn.ReLU()
         )
 
         self.flatten = nn.Flatten()
 
         self.decoder2 = nn.Sequential(
-            nn.Linear((self.num_inputs1 + self.num_inputs2 + self.num_inputs3 + 1) * embbedVectorSize, 64),
+            nn.Linear((self.num_inputs1 + self.num_inputs2 + self.num_inputs3 + 1) * JOB_FEATURES, 64),
             nn.ReLU(),
             nn.Linear(64, action2_num),
         )
@@ -189,12 +189,12 @@ class CriticNet(nn.Module):
         self.hidden = nn.Sequential(
             nn.Linear(self.d_model, 32),
             nn.ReLU(),
-            nn.Linear(32, embbedVectorSize),
+            nn.Linear(32, JOB_FEATURES),
             nn.ReLU()
         )
 
         self.out = nn.Sequential(
-            nn.Linear((self.num_inputs1 + self.num_inputs2 + self.num_inputs3) * embbedVectorSize, 64),
+            nn.Linear((self.num_inputs1 + self.num_inputs2 + self.num_inputs3) * JOB_FEATURES, 64),
             nn.ReLU(),
             nn.Linear(64, 8),
             nn.ReLU(),
